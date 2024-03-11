@@ -8,6 +8,7 @@ url = "https://api.lofty.ai/prod/properties/v2/marketplace?page=1&pageSize=200"
 # Make the GET request
 response = requests.get(url)
 
+output_dir = "outputs"
 
 def save_transaction_history_to_csv(property_id, assetUnit):
     # Construct the API URL for the transaction history endpoint
@@ -21,7 +22,7 @@ def save_transaction_history_to_csv(property_id, assetUnit):
 
         # Use a timestamp in the filename to make it unique
         timestamp = datetime.now().strftime("%Y%m%d-%H-%M-%S")
-        filename = f"{assetUnit}_history_{timestamp}.csv"
+        filename = f"{output_dir}/{assetUnit}_history_{timestamp}.csv"
 
         # Open a CSV file to write the data
         with open(filename, mode='w', newline='') as file:
@@ -61,7 +62,7 @@ def fetch_and_save_orderbook(propertyId, assetUnit):
             sellOrders = orderBook.get('sellOrders', [])
 
             # Open or create a CSV file to write the data
-            with open(f'{assetUnit}.csv', mode='w', newline='') as file:
+            with open(f'{output_dir}/{assetUnit}.csv', mode='w', newline='') as file:
                 writer = csv.writer(file)
 
                 # Write the header row
@@ -91,7 +92,7 @@ if response.status_code == 200:
     data = response.json()
 
     # Open a CSV file to write the data
-    with open('properties.csv', mode='w', newline='') as file:
+    with open(f"{output_dir}/properties.csv", mode='w', newline='') as file:
         # Create a CSV writer
         writer = csv.writer(file)
 
