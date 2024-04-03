@@ -1,13 +1,10 @@
 import requests
 import csv
 from datetime import datetime
+import os
 
 # API URL
 url = "https://api.lofty.ai/prod/properties/v2/marketplace?page=1&pageSize=200"
-
-# Make the GET request
-response = requests.get(url)
-
 output_dir = "outputs"
 
 def save_transaction_history_to_csv(property_id, assetUnit):
@@ -62,7 +59,7 @@ def fetch_and_save_orderbook(propertyId, assetUnit):
             sellOrders = orderBook.get('sellOrders', [])
 
             # Open or create a CSV file to write the data
-            with open(f'{output_dir}/{assetUnit}.csv', mode='w', newline='') as file:
+            with open(f'{output_dir}/{assetUnit}_open_orders.csv', mode='w', newline='') as file:
                 writer = csv.writer(file)
 
                 # Write the header row
@@ -86,30 +83,105 @@ def fetch_and_save_orderbook(propertyId, assetUnit):
         print("Failed to fetch data from API. Status code:", response.status_code)
 
 
-# Proceed if the request was successful
-if response.status_code == 200:
-    # Parse the JSON response
-    data = response.json()
+def analyze_orderbooks(output_dir, lp_only=False):
+    all_orders = []
 
-    # Open a CSV file to write the data
-    with open(f"{output_dir}/properties.csv", mode='w', newline='') as file:
-        # Create a CSV writer
+    # Iterate through all files in the output directory
+    for fn in os.listdir(output_dir):
+        if lp_only:
+            with open("lp_list.txt", mode='r', newline='') as lp:
+                lp_list = [x.rstrip() for x in lp.readlines()]
+
+            # Skip files w/o liquidity pool
+            if fn.split('_')[0] not in lp_list:
+                print(fn.split('_')[0] + " has no LP")
+                continue
+
+        if "open_orders" in fn and "combined" not in fn:
+            # Construct the full path to the file
+            file_path = os.path.join(output_dir, fn)
+
+            # Open each relevant CSV file and read the data
+            with open(file_path, mode='r', newline='') as file:
+                reader = csv.reader(file)
+                headers = next(reader)  # Get the header row
+
+                print(f"Headers in {fn}: {headers}")  # Print the headers to debug
+
+                # Determine index of each column
+                order_type_index = headers.index("Order Type")
+                quantity_index = headers.index("Quantity")
+                price_index = headers.index("Price")
+                property_id_index = headers.index("Property ID")
+                order_id_index = headers.index("Order ID")
+                expire_at_index = headers.index("Expire At")
+                created_at_index = headers.index("Created At")
+
+                # Read each order and append to the all_orders list, replacing property_id with a link
+                for row in reader:
+                    # Create the link for the property ID
+                    link = f"https://lofty.ai/property_deal/{row[property_id_index]}"
+
+                    # Append order with the link instead of property ID
+                    all_orders.append((
+                        row[order_type_index],
+                        int(row[quantity_index]),
+                        float(row[price_index]),
+                        link,  # Use the link here
+                        row[order_id_index],
+                        row[expire_at_index],
+                        row[created_at_index]
+                    ))
+
+    # Sort the orders: 'Buy' orders first by price ascending, then 'Sell' orders by price ascending
+    all_orders.sort(key=lambda x: (x[0], x[2]), reverse=True)
+
+    # Write the combined and sorted orders to a new CSV file
+    order_books_fn = "combined_open_orders_lp_only.csv" if lp_only else "combined_open_orders.csv"
+    with open(os.path.join(output_dir, order_books_fn), mode='w', newline='') as file:
         writer = csv.writer(file)
 
-        # Write the header row
-        writer.writerow(['ID', 'Asset Unit', 'Address'])
+        # Write the header row with updated 'Property Link' label
+        writer.writerow(['Order Type', 'Quantity', 'Price', 'Property Link', 'Order ID', 'Expire At', 'Created At'])
 
-        # Extract and write data for each property
-        for property in data.get('data', {}).get('properties', []):
-            # Extract needed values, handling missing data gracefully
-            id = property.get('id', '')
-            asset_unit = property.get('assetUnit', '')
-            address = property.get('address', '')  # Directly use the address string
+        # Write sorted orders
+        for order in all_orders:
+            writer.writerow(order)
 
-            # Write the property data to the CSV
-            writer.writerow([id, asset_unit, address])
 
-            fetch_and_save_orderbook(id, asset_unit)
-            save_transaction_history_to_csv(id, asset_unit)
-else:
-    print("Failed to fetch data from API. Status code:", response.status_code)
+analyze_orderbooks(output_dir, True)
+
+
+if '__name__' == '__main__':
+    # Make the GET request``
+    response = requests.get(url)
+
+    # Proceed if the request was successful
+    if response.status_code == 200:
+        # Parse the JSON response
+        data = response.json()
+
+        # Open a CSV file to write the data
+        with open(f"{output_dir}/properties.csv", mode='w', newline='') as file:
+            # Create a CSV writer
+            writer = csv.writer(file)
+
+            # Write the header row
+            writer.writerow(['ID', 'Asset Unit', 'Address'])
+
+            # Extract and write data for each property
+            for property in data.get('data', {}).get('properties', []):
+                # Extract needed values, handling missing data gracefully
+                id = property.get('id', '')
+                asset_unit = property.get('assetUnit', '')
+                address = property.get('address', '')  # Directly use the address string
+
+                # Write the property data to the CSV
+                writer.writerow([id, asset_unit, address])
+
+                fetch_and_save_orderbook(id, asset_unit)
+                save_transaction_history_to_csv(id, asset_unit)
+    else:
+        print("Failed to fetch data from API. Status code:", response.status_code)
+
+#main()  # Analysis of existing data only, don't get new data by default
